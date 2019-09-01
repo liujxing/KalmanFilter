@@ -50,10 +50,6 @@ class KalmanMatrix(object):
 
     # functions for backward smoothing
 
-    def get_initial_backward_lagged_smooth_cov(self, gain_matrix, prev_posterior_cov):
-        intermediate = self.state_transition_matrix @ prev_posterior_cov
-        return intermediate - gain_matrix @ self.observation_output_matrix @ intermediate
-
     def get_backward_intermediate_matrix(self, posterior_cov, next_prior_cov):
         return posterior_cov @ self.state_transition_matrix.T @ np.linalg.inv(next_prior_cov)
 
@@ -66,10 +62,20 @@ class KalmanMatrix(object):
     def get_smooth_lagged_cov(self, next_smooth_cov, backward_intermediate_matrix):
         return next_smooth_cov @ backward_intermediate_matrix.T
 
-    def get_initial_smooth_lagged_cov(self, next_prior_cov, next_smooth_cov):
-        backward_intermediate_matrix = self.get_backward_intermediate_matrix(self.get_initial_forward_cov(), next_prior_cov)
+    def get_initial_smooth_lagged_cov(self, next_smooth_cov, backward_intermediate_matrix):
         return self.get_smooth_lagged_cov(next_smooth_cov, backward_intermediate_matrix)
 
+    def get_initial_smooth_cov(self, next_prior_cov, next_smooth_cov, backward_intermediate_matrix):
+        return self.get_smooth_cov(self.get_initial_forward_cov(), backward_intermediate_matrix, next_smooth_cov, next_prior_cov)
+
+    def get_initial_smooth_mean(self, next_smooth_mean, next_prior_mean, backward_intermediate_matrix):
+        return self.get_smooth_mean(self.get_initial_forward_cov(), next_smooth_mean, next_prior_mean, backward_intermediate_matrix)
+
+    # functions for optimization
+
+    def get_smooth_second_moment(self, smooth_mean, smooth_cov):
+        smooth_mean = smooth_mean.reshape(-1, 1)
+        return smooth_cov + smooth_mean @ smooth_mean.T
 
 
 
@@ -124,7 +130,14 @@ class KalmanFilter(object):
         smooth_lagged_cov = self.kalman_matrix.get_smooth_lagged_cov(next_smooth_cov, backward_intermediate_matrix)
         return smooth_mean, smooth_cov, smooth_lagged_cov
 
-    def backward_single_sequence(self, posterior_means, prior_means, posterior_covs, prior_covs) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def backward_step_to_initial(self, next_prior_cov, next_smooth_mean, next_prior_mean, next_smooth_cov):
+        backward_intermediate_matrix = self.kalman_matrix.get_backward_intermediate_matrix(self.kalman_matrix.get_initial_forward_cov(), next_prior_cov)
+        smooth_mean_initial = self.kalman_matrix.get_initial_smooth_mean(next_smooth_mean, next_prior_mean, backward_intermediate_matrix)
+        smooth_cov_initial = self.kalman_matrix.get_initial_smooth_cov(next_prior_cov, next_smooth_cov, backward_intermediate_matrix)
+        smooth_lagged_cov_initial = self.kalman_matrix.get_initial_smooth_lagged_cov(next_smooth_cov, backward_intermediate_matrix)
+        return smooth_mean_initial, smooth_cov_initial, smooth_lagged_cov_initial
+
+    def backward_single_sequence(self, posterior_means, prior_means, posterior_covs, prior_covs) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
         state_dim = self.kalman_matrix.get_state_dim()
         num_sample = len(posterior_means)
@@ -147,19 +160,103 @@ class KalmanFilter(object):
             current_smooth_mean = smooth_mean
             current_smooth_cov = smooth_cov
 
-        smooth_lagged_covs[0] = self.kalman_matrix.get_initial_smooth_lagged_cov(prior_covs[0], smooth_covs[0])
-        return smooth_means, smooth_covs, smooth_lagged_covs
+        smooth_mean_initial, smooth_cov_initial, smooth_lagged_cov_initial = self.backward_step_to_initial(prior_covs[0], smooth_means[0], prior_means[0], smooth_covs[0])
+        smooth_lagged_covs[0] = smooth_lagged_cov_initial
+
+        return smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial
 
 
+    def get_G_matrix(self, observations):
+        if observations.ndim == 1:
+            observations = observations.reshape(-1, 1)
 
-    def em_step(self):
-        pass
+        observation_dim = self.kalman_matrix.get_observation_dim()
+        G_matrix = np.zeros((observation_dim, observation_dim))
+        for i, observation in enumerate(observations):
+            observation = observation.reshape(-1, 1)
+            G_matrix += observation @ observation.T
+        return G_matrix
+
+    def get_D_matrix(self, observations, smooth_means):
+        if observations.ndim == 1:
+            observations = observations.reshape(-1, 1)
+
+        observation_dim = self.kalman_matrix.get_observation_dim()
+        D_matrix = np.zeros((observation_dim, observation_dim))
+        for i, observation in enumerate(observations):
+            observation = observation.reshape(-1, 1)
+            smooth_mean = smooth_means[i].reshape(-1, 1)
+            D_matrix += observation @ smooth_mean.T
+        return D_matrix
+
+    def get_E_matrix(self, smooth_means, smooth_covs):
+        state_dim = self.kalman_matrix.get_state_dim()
+        E_matrix = np.zeros((state_dim, state_dim))
+        for i in range(len(smooth_means)):
+            smooth_mean = smooth_means[i].reshape(-1, 1)
+            smooth_cov = smooth_covs[i]
+            smooth_second_moment = self.kalman_matrix.get_smooth_second_moment(smooth_mean, smooth_cov)
+            E_matrix += smooth_second_moment
+        return E_matrix
+
+    def get_B_matrix(self, smooth_lagged_covs, smooth_means, smooth_mean_initial):
+        state_dim = self.kalman_matrix.get_state_dim()
+        B_matrix = np.zeros((state_dim, state_dim))
+        for i in range(1, len(smooth_means)):
+            smooth_mean = smooth_means[i].reshape(-1, 1)
+            prev_smooth_mean = smooth_means[i-1].reshape(-1, 1)
+            smooth_lagged_cov = smooth_lagged_covs[i]
+            B_matrix += smooth_lagged_cov + smooth_mean @ prev_smooth_mean.T
+        B_matrix += smooth_lagged_covs[0] + smooth_means[0].reshape(-1, 1) @ smooth_mean_initial.reshape(1, -1)
+        return B_matrix
+
+    def get_A_matrix(self, E_matrix, smooth_means, smooth_covs, smooth_mean_initial, smooth_cov_initial):
+        first_smooth_second_moment = self.kalman_matrix.get_smooth_second_moment(smooth_mean_initial, smooth_cov_initial)
+        last_smooth_second_moment = self.kalman_matrix.get_smooth_second_moment(smooth_means[-1].reshape(-1, 1), smooth_covs[-1])
+        return E_matrix - last_smooth_second_moment + first_smooth_second_moment
+
+    def get_updated_state_transition_matrix(self, B_matrix, A_matrix, num_sample):
+        return B_matrix @ np.linalg.inv(A_matrix) / num_sample
+
+    def get_updated_transition_noise_matrix(self, E_matrix, B_matrix, updated_state_transition_matrix, num_sample):
+        return (E_matrix - updated_state_transition_matrix @ B_matrix.T) / num_sample
+
+    def get_updated_observation_output_matrix(self, D_matrix, E_matrix, num_sample):
+        return D_matrix @ np.linalg.inv(E_matrix) / num_sample
+
+    def get_updated_observation_noise_matrix(self, G_matrix, D_matrix, updated_observation_output_matrix, num_sample):
+        return (G_matrix - updated_observation_output_matrix @ D_matrix.T) / num_sample
+
+    def get_updated_initial_mean_matrix(self, smooth_mean_initial):
+        return smooth_mean_initial
+
+    def get_updated_initial_cov_matrix(self, smooth_cov_initial):
+        return smooth_cov_initial
 
 
-    def fit_single(self):
-        pass
+    def optimize_step_single_sequence(self, smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial, observations):
 
+        E_matrix = self.get_E_matrix(smooth_means, smooth_covs)
+        D_matrix = self.get_D_matrix(observations, smooth_means)
 
-    def fit(self):
-        pass
+        B_matrix = self.get_B_matrix(smooth_lagged_covs, smooth_means, smooth_mean_initial)
+        A_matrix = self.get_A_matrix(E_matrix, smooth_means, smooth_covs, smooth_mean_initial, smooth_cov_initial)
+        G_matrix = self.get_G_matrix(observations)
 
+        num_sample = len(observations)
+
+        updated_state_transition_matrix = self.get_updated_state_transition_matrix(B_matrix, A_matrix, num_sample)
+        updated_transition_noise_matrix = self.get_updated_transition_noise_matrix(E_matrix, B_matrix, updated_state_transition_matrix, num_sample)
+        updated_observation_output_matrix = self.get_updated_observation_output_matrix(D_matrix, E_matrix, num_sample)
+        updated_observation_noise_matrix = self.get_updated_observation_noise_matrix(G_matrix, D_matrix, updated_observation_output_matrix, num_sample)
+        updated_initial_mean_matrix = self.get_updated_initial_mean_matrix(smooth_mean_initial)
+        updated_initial_cov_matrix = self.get_updated_initial_cov_matrix(smooth_cov_initial)
+
+        self.kalman_matrix.state_transition_matrix = updated_state_transition_matrix
+        self.kalman_matrix.transition_noise_matrix = updated_transition_noise_matrix
+        self.kalman_matrix.observation_output_matrix = updated_observation_output_matrix
+        self.kalman_matrix.observation_noise_matrix = updated_observation_noise_matrix
+        self.kalman_matrix.initial_mean_matrix = updated_initial_mean_matrix
+        self.kalman_matrix.initial_covariance_matrix = updated_initial_cov_matrix
+
+        return self.kalman_matrix
