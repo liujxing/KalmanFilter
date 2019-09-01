@@ -57,7 +57,8 @@ if __name__ == "__main__":
         current_prior_cov = kalman_matrix.get_next_prior_cov(prev_posterior_cov)
         current_gain_matrix = kalman_matrix.get_gain_matrix(current_prior_cov)
         current_posterior_cov = kalman_matrix.get_posterior_cov(current_prior_cov, current_gain_matrix)
-        current_posterior_mean = kalman_matrix.get_posterior_mean(prev_posterior_mean, current_gain_matrix,
+        current_prior_mean = kalman_matrix.get_prior_mean(prev_posterior_mean)
+        current_posterior_mean = kalman_matrix.get_posterior_mean(current_prior_mean, current_gain_matrix,
                                                                   y_samples[i].reshape(-1, 1))
 
         # set the result
