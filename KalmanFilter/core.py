@@ -163,7 +163,7 @@ class KalmanMatrix(object):
         return self.get_smooth_cov(self.get_initial_forward_cov(), backward_intermediate_matrix, next_smooth_cov, next_prior_cov)
 
     def get_initial_smooth_mean(self, next_smooth_mean, next_prior_mean, backward_intermediate_matrix):
-        return self.get_smooth_mean(self.get_initial_forward_cov(), next_smooth_mean, next_prior_mean, backward_intermediate_matrix)
+        return self.get_smooth_mean(self.get_initial_forward_mean(), next_smooth_mean, next_prior_mean, backward_intermediate_matrix)
 
     ######################## functions for optimization #######################
 
@@ -241,7 +241,9 @@ class KalmanFilter(object):
     def backward_single_sequence(self, posterior_means, prior_means, posterior_covs, prior_covs) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
         state_dim = self.kalman_matrix.get_state_dim()
-        num_sample = len(posterior_means)
+        num_sample = posterior_means.shape[0]
+
+        # store the result
         smooth_means = np.zeros((num_sample, state_dim, 1))
         smooth_covs = np.zeros((num_sample, state_dim, state_dim))
         smooth_lagged_covs = np.zeros((num_sample, state_dim, state_dim))
