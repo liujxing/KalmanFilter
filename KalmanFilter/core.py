@@ -35,8 +35,8 @@ class KalmanMatrix(object):
                 observation_noise_matrix = observation_noise_matrix.reshape(-1, 1)
             if observation_noise_matrix.ndim != 2:
                 raise ValueError("The dimension of observation_noise_matrix should be 2 but get {}".format(observation_noise_matrix.ndim))
-            if observation_noise_matrix.shape[0] != observation_dim or observation_noise_matrix.shape[1] != 1:
-                raise ValueError("The shape of observation_noise_matrix is {} but expecting ({}, 1)".format(observation_noise_matrix.shape, observation_dim))
+            if observation_noise_matrix.shape[0] != observation_dim or observation_noise_matrix.shape[1] != observation_dim:
+                raise ValueError("The shape of observation_noise_matrix is {} but expecting ({}, {})".format(observation_noise_matrix.shape, observation_dim, observation_dim))
 
         if initial_mean_matrix is not None:
             if initial_mean_matrix.ndim == 1:
@@ -69,7 +69,7 @@ class KalmanMatrix(object):
     def get_observation_dim(self):
         return self.observation_dim
 
-    def _copy_optional_matrix(self, matrix):
+    def _copy_optional_matrix(self, matrix:Optional[np.ndarray]):
         if matrix is None:
             return None
         else:
@@ -84,6 +84,36 @@ class KalmanMatrix(object):
                                    self._copy_optional_matrix(self.initial_mean_matrix),
                                    self._copy_optional_matrix(self.initial_covariance_matrix))
         return matrix_copy
+
+    def has_none_matrix(self):
+        return self.state_transition_matrix is None or self.transition_noise_matrix is None or \
+            self.observation_output_matrix is None or self.observation_noise_matrix is None or \
+            self.initial_mean_matrix is None or self.initial_covariance_matrix is None
+
+    ####################### functions for sampling from sequence #########################
+    def sample_state(self, prev_state):
+        return self.state_transition_matrix @ prev_state + np.random.multivariate_normal(np.zeros(self.get_state_dim()), self.transition_noise_matrix).reshape(self.get_state_dim(), 1)
+
+    def sample_observation(self, state):
+        return self.observation_output_matrix @ state + np.random.multivariate_normal(np.zeros(self.get_observation_dim()), self.observation_noise_matrix).reshape(self.get_observation_dim(), 1)
+
+    def generate_sampled_sequence(self, num_sample) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if self.has_none_matrix():
+            raise ValueError("Cannot generate sequence when at least one of the matrix is None")
+        initial_state = np.random.multivariate_normal(mean=np.ravel(self.initial_mean_matrix), cov=self.initial_covariance_matrix).reshape(self.get_state_dim(), 1)
+        current_state = initial_state
+
+        states = np.zeros((num_sample, self.get_state_dim(), 1))
+        observations = np.zeros((num_sample, self.get_observation_dim(), 1))
+        for i in range(num_sample):
+            state = self.sample_state(current_state)
+            observation = self.sample_observation(state)
+            states[i] = state
+            observations[i] = observation
+
+            current_state = state
+
+        return initial_state, states, observations
 
     ####################### functions for forward filtering #########################
 
