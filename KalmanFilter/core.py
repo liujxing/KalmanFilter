@@ -172,7 +172,6 @@ class KalmanMatrix(object):
         return smooth_cov + smooth_mean @ smooth_mean.T
 
 
-
 class KalmanFilter(object):
 
     def __init__(self, kalman_matrix:KalmanMatrix):
@@ -190,12 +189,20 @@ class KalmanFilter(object):
 
     def forward_single_sequence(self, observations) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
-        if observations.ndim == 1:
-            observations = observations.reshape(-1, 1)
+        # check the shape of matrix
+        if observations.ndim == 1 and self.kalman_matrix.get_observation_dim() == 1:
+            observations = observations.expand_dims(1)
+        if observations.ndim == 2:
+            observations = observations.expand_dims(2)
+        if observations.ndim != 3:
+            raise ValueError("The dimension of observations should be 3, but get {}".format(observations.ndim))
+        if observations.shape[1] != self.kalman_matrix.get_observation_dim() or observations.shape[2] != 1:
+            raise ValueError("The shape of observations is {} but expecting (-1, {}, 1)".format(observations.shape, self.kalman_matrix.get_observation_dim()))
 
         state_dim = self.kalman_matrix.get_state_dim()
-        num_sample = len(observations)
+        num_sample = observations.shape[0]
 
+        # generate array for storing the result
         posterior_means = np.zeros((num_sample, state_dim, 1))
         prior_means = np.zeros((num_sample, state_dim, 1))
         posterior_covs = np.zeros((num_sample, state_dim, state_dim))
@@ -205,7 +212,7 @@ class KalmanFilter(object):
         current_posterior_cov = self.kalman_matrix.get_initial_forward_cov()
 
         for i in range(num_sample):
-            posterior_mean, prior_mean, posterior_cov, prior_cov = self.forward_step(current_posterior_mean, current_posterior_cov, observations[i].reshape(-1, 1))
+            posterior_mean, prior_mean, posterior_cov, prior_cov = self.forward_step(current_posterior_mean, current_posterior_cov, observations[i])
 
             prior_means[i] = prior_mean
             posterior_means[i] = posterior_mean

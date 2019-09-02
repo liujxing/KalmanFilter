@@ -1,73 +1,30 @@
 import numpy as np
-from KalmanFilter.core import KalmanMatrix
+from KalmanFilter.core import KalmanFilter
+from tests.matrix_generation import generate_random_kalman_matrix
 
 if __name__ == "__main__":
 
     # generate matrix for the process
-    num_hidden_dim = 4
-    num_observation_dim = 2
+    state_dim = 4
+    observation_dim = 2
+    noise_level = 0.01
+    kalman_matrix = generate_random_kalman_matrix(state_dim, observation_dim, noise_level)
 
-    state_transition_matrix = (np.random.random((num_hidden_dim, num_hidden_dim)) - 0.5) * 1
-    transition_noise_matrix = (np.random.random((num_hidden_dim, num_hidden_dim)) - 0.5) * 0.01
-    transition_noise_matrix = transition_noise_matrix @ transition_noise_matrix.T
-
-    observation_output_matrix = (np.random.random((num_observation_dim, num_hidden_dim)) - 0.5) * 1
-    observation_noise_matrix = (np.random.random((num_observation_dim, num_observation_dim)) - 0.5) * 0.01
-    observation_noise_matrix = observation_noise_matrix @ observation_noise_matrix.T
-
-    initial_mean_matrix = (np.random.random((num_hidden_dim, 1)) - 0.5) * 1
-    initial_covariance_matrix = (np.random.random((num_hidden_dim, num_hidden_dim)) - 0.5) * 0.01
-    initial_covariance_matrix = initial_covariance_matrix @ initial_covariance_matrix.T
-
-    # generate Kalman Matrix
-    kalman_matrix = KalmanMatrix(state_transition_matrix, transition_noise_matrix,
-                                 observation_output_matrix, observation_noise_matrix,
-                                 initial_mean_matrix, initial_covariance_matrix
-                                 )
-
-    # generate random sequence from the kalman matrix
+    # generate the sequence using kalman matrix
     num_sample = 10000
+    initial_state, state_sequence, observation_sequence = kalman_matrix.generate_sampled_sequence(num_sample)
 
-    initial_mean = kalman_matrix.get_initial_forward_mean()
-    initial_cov = kalman_matrix.get_initial_forward_cov()
+    # generate kalman filter from kalman matrix
+    kalman_filter = KalmanFilter(kalman_matrix)
 
-    x0 = np.random.multivariate_normal(np.ravel(initial_mean), initial_cov)
-    x_samples = np.zeros((num_sample, num_hidden_dim))
-    for i in range(num_sample):
-        if i == 0:
-            x_prev = x0
-        else:
-            x_prev = x_samples[i - 1]
-        x_samples[i] = np.ravel(state_transition_matrix @ x_prev.reshape(-1, 1)) + np.random.multivariate_normal(
-            np.zeros(num_hidden_dim), transition_noise_matrix)
+    # generate the filtered state
+    posterior_means, prior_means, posterior_covs, prior_covs = kalman_filter.forward_single_sequence(observation_sequence)
 
-    y_samples = np.zeros((num_sample, num_observation_dim))
-    for i in range(num_sample):
-        y_samples[i] = np.ravel(
-            observation_output_matrix @ x_samples[i].reshape(-1, 1)) + np.random.multivariate_normal(
-            np.zeros(num_observation_dim), observation_noise_matrix)
+    # calculate the correlation of prior means and posterior means
+    for i in range(state_dim):
+        corr_prior = np.corrcoef(np.ravel(prior_means[:, i]), np.ravel(state_sequence[:, i]))[0, 1]
+        corr_posterior = np.corrcoef(np.ravel(posterior_means[:, i]), np.ravel(state_sequence[:, i]))[0, 1]
+        print("Correlation along state dim {} - prior mean: {:.2f}%, posterior mean: {:.2f}%".format(
+            i, corr_prior * 100, corr_posterior * 100))
 
-    # use Kalman filter to calculate the latent variable of the data
-    x_results = np.zeros((num_sample, num_hidden_dim))
 
-    prev_posterior_mean = kalman_matrix.get_initial_forward_mean()
-    prev_posterior_cov = kalman_matrix.get_initial_forward_cov()
-
-    for i in range(num_sample):
-        current_prior_cov = kalman_matrix.get_next_prior_cov(prev_posterior_cov)
-        current_gain_matrix = kalman_matrix.get_gain_matrix(current_prior_cov)
-        current_posterior_cov = kalman_matrix.get_posterior_cov(current_prior_cov, current_gain_matrix)
-        current_prior_mean = kalman_matrix.get_prior_mean(prev_posterior_mean)
-        current_posterior_mean = kalman_matrix.get_posterior_mean(current_prior_mean, current_gain_matrix,
-                                                                  y_samples[i].reshape(-1, 1))
-
-        # set the result
-        x_results[i] = np.ravel(current_posterior_mean)
-        prev_posterior_mean = current_posterior_mean
-        prev_posterior_cov = current_posterior_cov
-
-    # calculate the correlation between states and mean obtained using Kalman filter
-
-    for i in range(num_hidden_dim):
-        print("Correlation along %dth hidden variable: %.2f%%" % (
-            i, 100 * np.corrcoef(x_samples[:, i], x_results[:, i])[0, 1]))
