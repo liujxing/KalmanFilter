@@ -170,16 +170,28 @@ class KalmanMatrix(object):
     def get_smooth_second_moment(self, smooth_mean, smooth_cov):
         return smooth_cov + smooth_mean @ smooth_mean.T
 
-    def get_random_state_transition_matrix(self):
-        return np.random.random((self.get_state_dim(), self.get_state_dim())) - 0.5
+    def fill_nondiagonal_elements(self, matrix, fill_value):
+        diagonal = np.diag(matrix).copy()
+        matrix.fill(fill_value)
+        np.fill_diagonal(matrix, diagonal)
+        return matrix
 
-    def get_random_transition_noise_matrix(self, noise_level=0.1):
+    def get_random_state_transition_matrix(self, diagonal=False):
+        state_transition_matrix = np.random.random((self.get_state_dim(), self.get_state_dim())) - 0.5
+        if diagonal:
+            self.fill_nondiagonal_elements(state_transition_matrix, 0)
+        return state_transition_matrix
+
+    def get_random_transition_noise_matrix(self, noise_level=0.1, diagonal=False):
         transition_noise_matrix = (np.random.random((self.get_state_dim(), self.get_state_dim())) - 0.5) * noise_level
         transition_noise_matrix = transition_noise_matrix @ transition_noise_matrix.T
+        if diagonal:
+            self.fill_nondiagonal_elements(transition_noise_matrix, 0)
         return transition_noise_matrix
 
     def get_random_observation_output_matrix(self):
-        return np.random.random((self.get_observation_dim(), self.get_state_dim())) - 0.5
+        observation_output_matrix = np.random.random((self.get_observation_dim(), self.get_state_dim())) - 0.5
+        return observation_output_matrix
 
     def get_random_observation_noise_matrix(self, noise_level=0.1):
         observation_noise_matrix = (np.random.random((self.get_observation_dim(), self.get_observation_dim())) - 0.5) * noise_level
@@ -189,9 +201,11 @@ class KalmanMatrix(object):
     def get_random_initial_mean_matrix(self):
         return np.random.random((self.get_state_dim(), 1)) - 0.5
 
-    def get_random_initial_cov_matrix(self, noise_level=0.1):
+    def get_random_initial_cov_matrix(self, noise_level=0.1, diagonal=False):
         initial_covariance_matrix = (np.random.random((self.get_state_dim(), self.get_state_dim())) - 0.5) * noise_level
         initial_covariance_matrix = initial_covariance_matrix @ initial_covariance_matrix.T
+        if diagonal:
+            self.fill_nondiagonal_elements(initial_covariance_matrix, 0)
         return initial_covariance_matrix
 
 
@@ -334,25 +348,42 @@ class KalmanFilter(object):
         last_smooth_second_moment = self.kalman_matrix.get_smooth_second_moment(smooth_means[-1], smooth_covs[-1])
         return E_matrix - last_smooth_second_moment + first_smooth_second_moment
 
-    def get_updated_state_transition_matrix(self, B_matrix, A_matrix, num_sample):
-        return B_matrix @ np.linalg.inv(A_matrix) / num_sample
+    def get_updated_state_transition_matrix(self, B_matrix, A_matrix, diagonal):
+        if diagonal:
+            result = np.zeros((self.kalman_matrix.get_state_dim(), self.kalman_matrix.get_state_dim()))
+            np.fill_diagonal(result, np.diag(B_matrix) / np.diag(A_matrix))
+        else:
+            result = B_matrix @ np.linalg.inv(A_matrix)
+        return result
 
-    def get_updated_transition_noise_matrix(self, E_matrix, B_matrix, updated_state_transition_matrix, num_sample):
-        return (E_matrix - updated_state_transition_matrix @ B_matrix.T) / num_sample
+    def get_updated_transition_noise_matrix(self, E_matrix, B_matrix, updated_state_transition_matrix, num_sample, diagonal):
+        if diagonal:
+            result = np.zeros((self.kalman_matrix.get_state_dim(), self.kalman_matrix.get_state_dim()))
+            np.fill_diagonal(result, (np.diag(E_matrix) - np.diag(updated_state_transition_matrix) * np.diag(B_matrix)) / num_sample)
+        else:
+            result = (E_matrix - updated_state_transition_matrix @ B_matrix.T) / num_sample
+        return result
 
-    def get_updated_observation_output_matrix(self, D_matrix, E_matrix, num_sample):
-        return D_matrix @ np.linalg.inv(E_matrix) / num_sample
+    def get_updated_observation_output_matrix(self, D_matrix, E_matrix):
+        return D_matrix @ np.linalg.inv(E_matrix)
 
     def get_updated_observation_noise_matrix(self, G_matrix, D_matrix, updated_observation_output_matrix, num_sample):
-        return (G_matrix - updated_observation_output_matrix @ D_matrix.T) / num_sample
+        result = (G_matrix - updated_observation_output_matrix @ D_matrix.T) / num_sample
+        return result
 
     def get_updated_initial_mean_matrix(self, smooth_mean_initial):
         return smooth_mean_initial
 
-    def get_updated_initial_cov_matrix(self, smooth_cov_initial):
-        return smooth_cov_initial
+    def get_updated_initial_cov_matrix(self, smooth_cov_initial, diagonal):
+        if diagonal:
+            diagonal = np.diag(smooth_cov_initial).copy()
+            result = np.zeros(smooth_cov_initial.shape)
+            np.fill_diagonal(result, diagonal)
+        else:
+            result = smooth_cov_initial
+        return result
 
-    def optimize_step_single_sequence(self, smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial, observations):
+    def optimize_step_single_sequence(self, smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial, observations, diagonal):
 
         E_matrix = self.get_E_matrix(smooth_means, smooth_covs)
         D_matrix = self.get_D_matrix(observations, smooth_means)
@@ -363,33 +394,33 @@ class KalmanFilter(object):
 
         num_sample = observations.shape[0]
 
-        updated_state_transition_matrix = self.get_updated_state_transition_matrix(B_matrix, A_matrix, num_sample)
-        updated_transition_noise_matrix = self.get_updated_transition_noise_matrix(E_matrix, B_matrix, updated_state_transition_matrix, num_sample)
-        updated_observation_output_matrix = self.get_updated_observation_output_matrix(D_matrix, E_matrix, num_sample)
+        updated_state_transition_matrix = self.get_updated_state_transition_matrix(B_matrix, A_matrix, diagonal)
+        updated_transition_noise_matrix = self.get_updated_transition_noise_matrix(E_matrix, B_matrix, updated_state_transition_matrix, num_sample, diagonal)
+        updated_observation_output_matrix = self.get_updated_observation_output_matrix(D_matrix, E_matrix)
         updated_observation_noise_matrix = self.get_updated_observation_noise_matrix(G_matrix, D_matrix, updated_observation_output_matrix, num_sample)
         updated_initial_mean_matrix = self.get_updated_initial_mean_matrix(smooth_mean_initial)
-        updated_initial_cov_matrix = self.get_updated_initial_cov_matrix(smooth_cov_initial)
+        updated_initial_cov_matrix = self.get_updated_initial_cov_matrix(smooth_cov_initial, diagonal)
 
         return updated_state_transition_matrix, updated_transition_noise_matrix, updated_observation_output_matrix, \
                updated_observation_noise_matrix, updated_initial_mean_matrix, updated_initial_cov_matrix
 
 
-    def optimize_iteration_single_sequence(self, observations):
+    def optimize_iteration_single_sequence(self, observations, diagonal):
 
         posterior_means, prior_means, posterior_covs, prior_covs = self.forward_single_sequence(observations)
         smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial = self.backward_single_sequence(posterior_means, prior_means, posterior_covs, prior_covs)
-        return self.optimize_step_single_sequence(smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial, observations)
+        return self.optimize_step_single_sequence(smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial, observations, diagonal)
 
-    def optimize_single_sequence(self, observations, num_iteration):
+    def optimize_single_sequence(self, observations, diagonal, num_iteration):
 
         # find the parameters to be optimized
         optimize_state_transition_matrix = self.kalman_matrix.state_transition_matrix is None
         if optimize_state_transition_matrix:
-            self.kalman_matrix.state_transition_matrix = self.kalman_matrix.get_random_state_transition_matrix()
+            self.kalman_matrix.state_transition_matrix = self.kalman_matrix.get_random_state_transition_matrix(diagonal=diagonal)
 
         optimize_transition_noise_matrix = self.kalman_matrix.transition_noise_matrix is None
         if optimize_transition_noise_matrix:
-            self.kalman_matrix.transition_noise_matrix = self.kalman_matrix.get_random_transition_noise_matrix()
+            self.kalman_matrix.transition_noise_matrix = self.kalman_matrix.get_random_transition_noise_matrix(diagonal=diagonal)
 
         optimize_observation_output_matrix = self.kalman_matrix.observation_output_matrix is None
         if optimize_observation_output_matrix:
@@ -405,10 +436,10 @@ class KalmanFilter(object):
 
         optimize_initial_covariance_matrix = self.kalman_matrix.initial_covariance_matrix is None
         if optimize_initial_covariance_matrix:
-            self.kalman_matrix.initial_covariance_matrix = self.kalman_matrix.get_random_initial_cov_matrix()
+            self.kalman_matrix.initial_covariance_matrix = self.kalman_matrix.get_random_initial_cov_matrix(diagonal=diagonal)
 
         for i in range(num_iteration):
-            updated_state_transition_matrix, updated_transition_noise_matrix, updated_observation_output_matrix, updated_observation_noise_matrix, updated_initial_mean_matrix, updated_initial_cov_matrix = self.optimize_iteration_single_sequence(observations)
+            updated_state_transition_matrix, updated_transition_noise_matrix, updated_observation_output_matrix, updated_observation_noise_matrix, updated_initial_mean_matrix, updated_initial_cov_matrix = self.optimize_iteration_single_sequence(observations, diagonal)
 
             # update the parameters
             if optimize_state_transition_matrix:

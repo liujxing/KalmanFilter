@@ -17,7 +17,8 @@ if __name__ == "__main__":
     # generate kalman filter from kalman matrix
     kalman_filter = KalmanFilter(KalmanMatrix(state_dim, observation_dim))
     num_iteration = 10
-    kalman_filter.optimize_single_sequence(observation_sequence, num_iteration)
+    diagonal = False
+    kalman_filter.optimize_single_sequence(observation_sequence, diagonal, num_iteration)
 
     # generate the filtered state
     posterior_means, prior_means, posterior_covs, prior_covs = kalman_filter.forward_single_sequence(observation_sequence)
