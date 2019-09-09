@@ -1,5 +1,5 @@
 import numpy as np
-from KalmanFilter.core import KalmanFilter, KalmanMatrix
+from KalmanFilter.kalman_filter import KalmanFilter, KalmanMatrix
 from tests.matrix_generation import generate_random_kalman_matrix
 
 if __name__ == "__main__":
