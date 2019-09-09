@@ -7,14 +7,14 @@ if __name__ == "__main__":
     # generate matrix for the process
     state_dim = 4
     observation_dim = 1
-    noise_level = 0.01
+    noise_level = 0.0001
 
     state_transition_matrix = np.diag([0.1, 0.2, 0.4, 0.8])
-    transition_noise_matrix = np.diag([0.8, 0.6, 0.5, 0.4])
+    transition_noise_matrix = np.diag([0.8, 0.6, 0.5, 0.4]) * noise_level
     observation_output_matrix = np.array([1, 1, 1, 1]).reshape(observation_dim, state_dim)
     observation_noise_matrix = np.array([noise_level])
     initial_mean_matrix = np.array([0.25, 0.35, 0.3, 0.28])
-    initial_covariance_matrix = np.diag([0.3, 0.3, 0.3, 0.3])
+    initial_covariance_matrix = np.diag([0.3, 0.3, 0.3, 0.3]) * noise_level
 
     kalman_matrix = KalmanMatrix(state_dim, observation_dim, state_transition_matrix, transition_noise_matrix,
                                  observation_output_matrix, observation_noise_matrix, initial_mean_matrix,
@@ -26,14 +26,14 @@ if __name__ == "__main__":
 
     # generate kalman filter from kalman matrix
     kalman_filter = KalmanFilter(KalmanMatrix(state_dim, observation_dim,
-                                              state_transition_matrix=state_transition_matrix,
+                                              #state_transition_matrix=state_transition_matrix,
                                               transition_noise_matrix=transition_noise_matrix,
                                               observation_output_matrix=observation_output_matrix,
                                               observation_noise_matrix=observation_noise_matrix,
-                                              initial_mean_matrix=None,
+                                              initial_mean_matrix=initial_mean_matrix,
                                               initial_covariance_matrix=initial_covariance_matrix,
                                               ))
-    num_iteration = 10
+    num_iteration = 50
     diagonal = True
     kalman_filter.optimize_single_sequence(observation_sequence, diagonal, num_iteration)
 
