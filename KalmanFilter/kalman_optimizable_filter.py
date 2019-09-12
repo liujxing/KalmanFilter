@@ -204,7 +204,7 @@ class KalmanOptimizableFilter(KalmanFilter):
                                                                                      updated_observation_output_matrix,
                                                                                      num_sample)
         updated_initial_mean_matrix = self.get_updated_initial_mean_matrix_multiple_sequences(smooth_mean_initial_list)
-        updated_initial_cov_matrix = self.get_updated_initial_cov_matrix_multiple_sequences(smooth_cov_initial_list, diagonal)
+        updated_initial_cov_matrix = self.get_updated_initial_cov_matrix_multiple_sequences(smooth_cov_initial_list, smooth_mean_initial_list, updated_initial_mean_matrix, diagonal)
 
         return updated_state_transition_matrix, updated_transition_noise_matrix, updated_observation_output_matrix, \
                updated_observation_noise_matrix, updated_initial_mean_matrix, updated_initial_cov_matrix
