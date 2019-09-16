@@ -99,5 +99,19 @@ class KalmanFilter(object):
 
         return smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial
 
+    def smooth_single_sequence(self, observations:np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Perform smoothing of a single sequence
+        :param observations:
+        :return: smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial
+        """
+
+        posterior_means, prior_means, posterior_covs, prior_covs = self.forward_single_sequence(observations)
+        smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial = self.backward_single_sequence(
+            posterior_means, prior_means, posterior_covs, prior_covs)
+        return smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial
+
+
+
 
 

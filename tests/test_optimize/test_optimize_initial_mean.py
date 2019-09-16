@@ -12,7 +12,7 @@ if __name__ == "__main__":
     matrix_path = "data/test_optimize_initial_mean_matrix.npz"
     if os.path.exists(matrix_path):
         file = np.load(matrix_path)
-        state_dim = file["state_transition_matrix"].shape[0],
+        state_dim = file["state_transition_matrix"].shape[0]
         observation_dim = file["observation_output_matrix"].shape[0]
         kalman_matrix = KalmanMatrix(state_dim, observation_dim,
                                      file["state_transition_matrix"],
@@ -27,9 +27,9 @@ if __name__ == "__main__":
         # generate matrix for the process
         state_dim = 4
         observation_dim = 2
-        noise_level = 0.01
+        noise_level = 0.0001
         kalman_matrix = generate_random_kalman_matrix(state_dim, observation_dim, noise_level)
-        np.savez("data/test_optimize_initial_mean.npz",
+        np.savez(matrix_path,
                  state_transition_matrix=kalman_matrix.state_transition_matrix,
                  transition_noise_matrix=kalman_matrix.transition_noise_matrix,
                  observation_output_matrix=kalman_matrix.observation_output_matrix,
@@ -52,6 +52,7 @@ if __name__ == "__main__":
         observations_multiple_sequence = file["observations_multiple_sequence"]
         num_sequence = states_multiple_sequence.shape[0]
         sequence_length = states_multiple_sequence.shape[1]
+        file.close()
     else:
         num_sequence = 10000
         sequence_length = 100
@@ -82,5 +83,7 @@ if __name__ == "__main__":
                                                          diagonal=False,
                                                          num_iteration=num_iteration)
     print("True value of initial_mean_matrix: {}".format(np.ravel(kalman_matrix.initial_mean_matrix)))
+    print("Estimated value of initial_mean_matrix as mean of true initial states: {}".format(
+          np.ravel(np.mean(initial_state_multiple_sequence, axis=0))))
     print("Estimated value of initial_mean_matrix: {}".format(np.ravel(kalman_optimizable_matrix.initial_mean_matrix)))
 
