@@ -1,5 +1,5 @@
 import numpy as np
-from KalmanFilter.core import KalmanFilter
+from KalmanFilter.kalman_filter import KalmanFilter
 from tests.matrix_generation import generate_random_kalman_matrix
 
 if __name__ == "__main__":
@@ -7,8 +7,9 @@ if __name__ == "__main__":
     # generate matrix for the process
     state_dim = 4
     observation_dim = 2
-    noise_level = 0.01
+    noise_level = 0.001
     kalman_matrix = generate_random_kalman_matrix(state_dim, observation_dim, noise_level)
+    print("kalman_matrix is observable: {}".format(kalman_matrix.is_observable()))
 
     # generate the sequence using kalman matrix
     num_sample = 10000

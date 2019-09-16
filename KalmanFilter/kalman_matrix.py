@@ -90,6 +90,20 @@ class KalmanMatrix(object):
             self.observation_output_matrix is None or self.observation_noise_matrix is None or \
             self.initial_mean_matrix is None or self.initial_covariance_matrix is None
 
+    def is_observable(self) -> bool:
+        observability = []
+        observability.append(self.observation_output_matrix)
+        for i in range(self.get_state_dim() - 1):
+            observability.append(observability[-1] @ self.state_transition_matrix)
+        observability = np.vstack(observability)
+        rank = np.linalg.matrix_rank(observability)
+        if rank == self.get_state_dim():
+            return True
+        else:
+            return False
+
+
+
     ####################### functions for sampling from sequence #########################
     def sample_state(self, prev_state):
         return self.state_transition_matrix @ prev_state + np.random.multivariate_normal(np.zeros(self.get_state_dim()), self.transition_noise_matrix).reshape(self.get_state_dim(), 1)
