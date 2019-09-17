@@ -225,9 +225,7 @@ class KalmanOptimizableFilter(KalmanFilter):
         smooth_mean_initial_list = []
         smooth_cov_initial_list = []
         for observations in observations_list:
-            posterior_means, prior_means, posterior_covs, prior_covs = self.forward_single_sequence(observations)
-            smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial = self.backward_single_sequence(
-                posterior_means, prior_means, posterior_covs, prior_covs)
+            smooth_means, smooth_covs, smooth_lagged_covs, smooth_mean_initial, smooth_cov_initial = self.smooth_single_sequence(observations)
             smooth_means_list.append(smooth_means)
             smooth_covs_list.append(smooth_covs)
             smooth_lagged_covs_list.append(smooth_lagged_covs)
