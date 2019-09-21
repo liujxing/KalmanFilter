@@ -22,11 +22,11 @@ if __name__ == "__main__":
     kalman_optimizable_matrix = generate_optimizable_matrix_from_kalman_matrix(kalman_matrix,
                                                                                mask_initial_mean_matrix=True)
     kalman_optimizable_filter = KalmanOptimizableFilter(kalman_optimizable_matrix)
-    new_initial_mean_matrix = kalman_optimizable_filter.get_updated_initial_mean_matrix_multiple_sequences(smooth_initial_means_multiple_sequence)
+    new_initial_mean_matrix = kalman_optimizable_filter.get_mean_initial_means(smooth_initial_means_multiple_sequence)
     print("true_initial_mean_matrix - {}".format(np.ravel(kalman_matrix.initial_mean_matrix)))
     print("initial_mean_matrix - before optimization: {}".format(kalman_optimizable_matrix.initial_mean_matrix))
     print("new_initial_mean_matrix - optimization using function: {}".format(np.ravel(new_initial_mean_matrix)))
-    total_iteration = 20
+    total_iteration = 200
     for i in range(total_iteration):
         kalman_optimizable_filter.optimize_multiple_sequence(observations_multiple_sequence, False, 1)
         print("new_initial_mean_matrix - after optimization iteration {}/{}: {}".format(i, total_iteration, np.ravel(kalman_optimizable_matrix.initial_mean_matrix)))

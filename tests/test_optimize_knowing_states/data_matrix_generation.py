@@ -3,6 +3,7 @@ import time
 from tests.matrix_generation import generate_random_kalman_matrix
 
 if __name__ == "__main__":
+    # generate the kalman matrix
     matrix_path = "data/kalman_matrix.npz"
     state_dim = 4
     observation_dim = 2

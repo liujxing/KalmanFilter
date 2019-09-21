@@ -84,13 +84,58 @@ class KalmanOptimizableFilter(KalmanFilter):
             A_matrix += self.get_A_matrix_single_sequence(E_matrix, smooth_means_list[i], smooth_covs_list[i], smooth_mean_initial_list[i], smooth_cov_initial_list[i])
         return A_matrix
 
+    def get_U_matrix_multiple_sequences(self, smooth_mean_initial_list, smooth_cov_initial_list):
+        U_matrix = np.zeros((self.kalman_matrix.get_state_dim(), self.kalman_matrix.get_state_dim()))
+        for i in range(len(smooth_mean_initial_list)):
+            smooth_mean_initial = smooth_mean_initial_list[i]
+            smooth_cov_initial = smooth_cov_initial_list[i]
+            U_matrix += smooth_cov_initial + smooth_mean_initial @ smooth_mean_initial.T
+        return U_matrix
+
+    def get_mean_initial_means(self, smooth_mean_initial_list):
+        result = np.zeros((self.kalman_matrix.get_state_dim(), 1))
+        for smooth_mean_initial in smooth_mean_initial_list:
+            result += smooth_mean_initial
+        result /= len(smooth_mean_initial_list)
+        return result
+
     def get_num_sample(self, observations_list):
         num_sample = 0
         for observations in observations_list:
             num_sample += len(observations)
         return num_sample
 
+
     ################################## functions for getting kalman matrix ################################
+    def get_log_likelihood(self, A_matrix, B_matrix, D_matrix, E_matrix, G_matrix, U_matrix,
+                           mean_initial_means, num_sample, num_sequence) -> float:
+
+        result = 0
+        # component from observation
+        inverse_observation_noise_matrix = np.linalg.inv(self.kalman_matrix.observation_noise_matrix)
+        result += -0.5 * (np.trace(G_matrix @ inverse_observation_noise_matrix) -
+                          2 * np.trace(D_matrix.T @ inverse_observation_noise_matrix @ self.kalman_matrix.observation_output_matrix) +
+                          np.trace(E_matrix @ self.kalman_matrix.observation_output_matrix.T @ inverse_observation_noise_matrix @ self.kalman_matrix.observation_output_matrix))
+        # component from det(cov) of observation
+        result += -num_sample / 2 * np.log(np.linalg.det(self.kalman_matrix.observation_noise_matrix))
+
+        # component from state transition
+        inverse_transition_noise_matrix = np.linalg.inv(self.kalman_matrix.transition_noise_matrix)
+        result += -0.5 * (np.trace(E_matrix @ inverse_transition_noise_matrix) -
+                          2 * np.trace(B_matrix.T @ inverse_transition_noise_matrix @ self.kalman_matrix.state_transition_matrix) +
+                          np.trace(A_matrix @ self.kalman_matrix.state_transition_matrix.T @ inverse_transition_noise_matrix @ self.kalman_matrix.state_transition_matrix))
+        # component from det(cov) of transition
+        result += -num_sample / 2 * np.log(np.linalg.det(self.kalman_matrix.transition_noise_matrix))
+
+        # component from initial states
+        inverse_initial_covariance_matrix = np.linalg.inv(self.kalman_matrix.initial_covariance_matrix)
+        result += -0.5 * np.trace(U_matrix @ inverse_initial_covariance_matrix) + \
+                  num_sequence * self.kalman_matrix.initial_mean_matrix.T @ inverse_initial_covariance_matrix @ mean_initial_means - \
+                  0.5 * num_sequence * self.kalman_matrix.initial_mean_matrix.T @ inverse_initial_covariance_matrix @ self.kalman_matrix.initial_mean_matrix
+        result += -0.5 * num_sequence * np.log(np.linalg.det(self.kalman_matrix.initial_covariance_matrix))
+
+        return np.asscalar(result)
+
     # TODO: find a better way of creating diagonal matrix
     def get_updated_state_transition_matrix(self, B_matrix, A_matrix, diagonal):
         if diagonal:
@@ -121,12 +166,8 @@ class KalmanOptimizableFilter(KalmanFilter):
     def get_updated_initial_mean_matrix_single_sequence(self, smooth_mean_initial):
         return smooth_mean_initial
 
-    def get_updated_initial_mean_matrix_multiple_sequences(self, smooth_mean_initial_list):
-        result = np.zeros((self.kalman_matrix.get_state_dim(), 1))
-        for smooth_mean_initial in smooth_mean_initial_list:
-            result += smooth_mean_initial
-        result /= len(smooth_mean_initial_list)
-        return result
+    def get_updated_initial_mean_matrix_multiple_sequences(self, mean_initial_means):
+        return mean_initial_means
 
     def get_updated_initial_cov_matrix_single_sequence(self, smooth_cov_initial, diagonal):
         if diagonal:
@@ -193,7 +234,15 @@ class KalmanOptimizableFilter(KalmanFilter):
                                                         smooth_mean_initial_list, smooth_cov_initial_list)
         G_matrix = self.get_G_matrix_multiple_sequences(observations_list)
 
+        U_matrix = self.get_U_matrix_multiple_sequences(smooth_mean_initial_list, smooth_cov_initial_list)
+        mean_initial_means = self.get_mean_initial_means(smooth_mean_initial_list)
+
         num_sample = self.get_num_sample(observations_list)
+        num_sequence = len(observations_list)
+
+        log_likelihood = self.get_log_likelihood(A_matrix, B_matrix, D_matrix, E_matrix, G_matrix,
+                                                 U_matrix, mean_initial_means, num_sample, num_sequence)
+        print("Log likelihood before updating matrix: {}".format(log_likelihood))
 
         updated_state_transition_matrix = self.get_updated_state_transition_matrix(B_matrix, A_matrix, diagonal)
         updated_transition_noise_matrix = self.get_updated_transition_noise_matrix(E_matrix, B_matrix,
@@ -203,7 +252,7 @@ class KalmanOptimizableFilter(KalmanFilter):
         updated_observation_noise_matrix = self.get_updated_observation_noise_matrix(G_matrix, D_matrix,
                                                                                      updated_observation_output_matrix,
                                                                                      num_sample)
-        updated_initial_mean_matrix = self.get_updated_initial_mean_matrix_multiple_sequences(smooth_mean_initial_list)
+        updated_initial_mean_matrix = self.get_updated_initial_mean_matrix_multiple_sequences(mean_initial_means)
         updated_initial_cov_matrix = self.get_updated_initial_cov_matrix_multiple_sequences(smooth_cov_initial_list, smooth_mean_initial_list, updated_initial_mean_matrix, diagonal)
 
         return updated_state_transition_matrix, updated_transition_noise_matrix, updated_observation_output_matrix, \
@@ -234,28 +283,26 @@ class KalmanOptimizableFilter(KalmanFilter):
         return self.optimize_step_multiple_sequences(smooth_means_list, smooth_covs_list, smooth_lagged_covs_list,
                                                      smooth_mean_initial_list, smooth_cov_initial_list, observations_list, diagonal)
 
-
-
     @staticmethod
     def initialize_kalman_matrix_inplace(kalman_matrix: KalmanOptimizableMatrix, diagonal):
-        if kalman_matrix.optimize_state_transition_matrix:
+        if kalman_matrix.optimize_state_transition_matrix and kalman_matrix.state_transition_matrix is None:
             kalman_matrix.state_transition_matrix = kalman_matrix.get_random_state_transition_matrix(
                 diagonal=diagonal)
 
-        if kalman_matrix.optimize_transition_noise_matrix:
+        if kalman_matrix.optimize_transition_noise_matrix and kalman_matrix.transition_noise_matrix is None:
             kalman_matrix.transition_noise_matrix = kalman_matrix.get_random_transition_noise_matrix(
                 diagonal=diagonal)
 
-        if kalman_matrix.optimize_observation_output_matrix:
+        if kalman_matrix.optimize_observation_output_matrix and kalman_matrix.observation_output_matrix is None:
             kalman_matrix.observation_output_matrix = kalman_matrix.get_random_observation_output_matrix()
 
-        if kalman_matrix.optimize_observation_noise_matrix:
+        if kalman_matrix.optimize_observation_noise_matrix and kalman_matrix.observation_noise_matrix is None:
             kalman_matrix.observation_noise_matrix = kalman_matrix.get_random_observation_noise_matrix()
 
-        if kalman_matrix.optimize_initial_mean_matrix:
+        if kalman_matrix.optimize_initial_mean_matrix and kalman_matrix.initial_mean_matrix is None:
             kalman_matrix.initial_mean_matrix = kalman_matrix.get_random_initial_mean_matrix()
 
-        if kalman_matrix.optimize_initial_covariance_matrix:
+        if kalman_matrix.optimize_initial_covariance_matrix and kalman_matrix.optimize_initial_covariance_matrix is None:
             kalman_matrix.initial_covariance_matrix = kalman_matrix.get_random_initial_cov_matrix(
                 diagonal=diagonal)
 

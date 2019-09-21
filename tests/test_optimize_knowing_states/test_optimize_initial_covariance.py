@@ -67,7 +67,6 @@ if __name__ == "__main__":
     kalman_optimizable_matrix = generate_optimizable_matrix_from_kalman_matrix(kalman_matrix,
                                                                                mask_initial_covariance_matrix=True)
     kalman_optimizable_filter = KalmanOptimizableFilter(kalman_optimizable_matrix)
-    new_initial_mean_matrix = kalman_optimizable_filter.get_updated_initial_mean_matrix_multiple_sequences(smooth_initial_means_multiple_sequence)
     print("true_initial_covariance_matrix - \n{}".format(kalman_matrix.initial_covariance_matrix))
     print("initial_covariance_matrix - before optimization: {}".format(kalman_optimizable_matrix.initial_covariance_matrix))
     kalman_optimizable_filter.optimize_multiple_sequence(observations_multiple_sequence, False, 1)
